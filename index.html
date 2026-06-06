@@ -108,52 +108,31 @@
        const API_BASE = "https://streamingapp-v2-0.onrender.com"; 
 
 // Променената функция, която взима пресния линк от сървъра
-async function loadStream(channelId) {
+async function loadStream(id) {
     const video = document.getElementById('video');
-    currentSelectedChannel = channelId;
-    
-    // Актуализираме бутоните визуално
-    document.querySelectorAll('[id^="ch-"]').forEach(btn => {
-        const chId = btn.id.replace('ch-', '');
-        updateButtonState(btn, chId);
-    });
-
     try {
-        // Питаме сървъра за актуалния .m3u8 адрес
-        const res = await fetch(`${API_BASE}/api/stream/${channelId}`);
-        const data = await res.json();
-        
-        if (!data.url) {
-            alert("В момента стриймът не може да бъде извлечен автоматично.");
+        // Викаме ендпоинта, за да вземем линковете
+        const res = await fetch(`${API_BASE}/api/streams`);
+        const links = await res.json();
+        const m3u8Url = links[id];
+
+        if (!m3u8Url) {
+            console.warn(`Няма намерен активен линк за канал: ${id}`);
+            // Ако линкът липсва, показваме съобщение над плейъра
+            document.getElementById('currentChannelName').innerText = "Стриймът се обновява в момента... Опитайте след 10 сек.";
             return;
         }
 
-        const videoUrl = data.url;
-
-        // Зареждане във HLS плейъра
         if (Hls.isSupported()) {
             if (currentHls) currentHls.destroy();
             currentHls = new Hls();
-            currentHls.loadSource(videoUrl);
+            currentHls.loadSource(m3u8Url);
             currentHls.attachMedia(video);
-            
-            // Автоматично възстановяване при прекъсване на стрийма
-            currentHls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                        currentHls.startLoad();
-                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                        currentHls.recoverMediaError();
-                    }
-                }
-            });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = videoUrl;
+            video.src = m3u8Url;
         }
-
     } catch (err) {
-        console.error("Грешка при връзка със стрийминг сървъра:", err);
-        alert("Връзката със сървъра за стриймове се забавя. Моля, опитайте пак след 10 секунди.");
+        console.error("Грешка при зареждане на видео поток:", err);
     }
 }
 let currentHls = null;
