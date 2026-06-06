@@ -105,44 +105,48 @@ async function scanSingleChannel(browser, channel, url) {
 
     try {
         page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        
+        // Слагаме истински User Agent, за да не ни блокира Cloudflare
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
+        // Слушаме за мрежови заявки
         page.on('request', request => {
             try {
                 const reqUrl = request.url();
-                if (reqUrl.includes('.m3u8') && !foundStream) {
+                // Търсим линкове, които съдържат .m3u8 и балансьори (обикновено съдържат /live/, /hls/ или джаваскрипт токени)
+                if (reqUrl.includes('.m3u8') && !foundStream && !reqUrl.includes('analytics')) {
                     foundStream = reqUrl;
                     console.log(`   ✅ [УСПЕХ] Намерен линк за ${channel.name}`);
                 }
             } catch (err) {}
         });
 
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Отваряме страницата и чакаме да се зареди основния код
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 4000));
 
+        // Изтриваме досадните реклами, които застават ПРЕД плеъра и блокират кликането
         await page.evaluate(() => {
-            const playerEl = document.getElementById('player');
+            const playerEl = document.getElementById('player') || document.querySelector('video');
             if (!playerEl) return;
-            const allElements = document.querySelectorAll('div, iframe, section');
+            const allElements = document.querySelectorAll('div, iframe, section, ins');
             allElements.forEach(el => {
                 const style = window.getComputedStyle(el);
-                if ((style.position === 'absolute' || style.position === 'fixed') && !el.contains(playerEl) && el.id !== 'player') {
+                if ((style.position === 'absolute' || style.position === 'fixed') && !el.contains(playerEl)) {
                     el.remove();
                 }
             });
         }).catch(() => {});
 
-        await page.mouse.click(640, 360).catch(() => {});
-        
-        await page.evaluate(() => {
-            const videoContainer = document.getElementById('player') || document.querySelector('video');
-            if (videoContainer) {
-                const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                videoContainer.dispatchEvent(clickEvent);
-            }
-        }).catch(() => {});
+        // Опит за директно кликване върху видео елемента
+        const videoElement = await page.$('#player, video, iframe');
+        if (videoElement) {
+            await videoElement.click().catch(() => {});
+            console.log(`   [Инфо] Извършен директен клик върху плеъра.`);
+        }
 
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        // Изчакваме още 5 секунди, за да се задейства стрийма и да го прихванем
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
     } catch (err) {
         console.error(`   ❌ Проблем при ${channel.name}:`, err.message);
