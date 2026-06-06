@@ -1,5 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const cors = require('cors');
 
 // ГЛОБАЛНА ЗАЩИТА СРЕЩУ СРИВОВЕ
 process.on('unhandledRejection', (reason) => {
@@ -10,8 +11,9 @@ process.on('uncaughtException', (error) => {
 });
 
 const app = express();
+app.use(cors());
 
-// СЕРВИРАНЕ НА ФРОНТЕНДА ОТ ПАПКА PUBLIC
+// СЕРВИРАНЕ НА ФРОНТЕНДА (Задължително, за да се вижда сайтът в Render)
 app.use(express.static('public'));
 
 let streamCache = {
@@ -19,9 +21,15 @@ let streamCache = {
     max1: '', max2: '', euro1: '', euro2: '',
     btv_comedy: '', star_channel: '', star_life: '', lastUpdated: null
 };
+let programCache = {};
 
 const channelsConfig = [
-    { id: 'diema1', name: 'Diema Sport', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-hd&pass=', fallbackUrl: 'https://www.seirsanduk.online/?id=hd-diema-sport-hd&pass=&hash=' },
+    { 
+        id: 'diema1', 
+        name: 'Diema Sport', 
+        pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-hd&pass=',
+        fallbackUrl: 'https://www.seirsanduk.online/?id=hd-diema-sport-hd&pass=&hash=' 
+    },
     { id: 'diema2', name: 'Diema Sport 2', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-2-hd&pass=', logo: 'https://nstatic.nova.bg/public/doc/doc/1625131615_ds_web.jpg' },
     { id: 'diema3', name: 'Diema Sport 3', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-3-hd&pass=' },
     { id: 'max1', name: 'Max Sport 1', pageUrl: 'https://www.seirsanduk.online/?id=hd-max-sport-1-hd&pass=&hash=' },
@@ -34,17 +42,21 @@ const channelsConfig = [
 ];
 
 async function scrapeTokens() {
-    console.log('\n🚀 СТАРТИРАНЕ НА СКАНИРАНЕ ЗА СТРИЙМОВЕ...');
+    console.log('\n=========================================');
+    console.log('🚀 СТАРТИРАНЕ НА СКАНИРАНЕ ЗА СТРИЙМОВЕ');
+    console.log('=========================================');
+    
     let browser;
     try {
         browser = await puppeteer.launch({ 
             headless: true,
-    args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-    ]
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage',
+                '--disable-features=site-per-process',
+                '--window-size=1280,720'
+            ]
         });
 
         browser.on('targetcreated', async (target) => {
@@ -60,7 +72,7 @@ async function scrapeTokens() {
         });
 
         for (const channel of channelsConfig) {
-            console.log(`🔄 Сканиране: ${channel.name}...`);
+            console.log(`🔄 Сканиране на поток за: ${channel.name}...`);
             let foundStream = await scanSingleChannel(browser, channel, channel.pageUrl);
 
             if (!foundStream && channel.fallbackUrl) {
@@ -74,7 +86,8 @@ async function scrapeTokens() {
         }
 
         streamCache.lastUpdated = new Date();
-        console.log('🏁 СКАНИРАНЕТО НА СТРИЙМОВЕ ЗАВЪРШИ\n');
+        console.log('🏁 СКАНИРАНЕТО НА СТРИЙМОВЕ ЗАВЪРШИ');
+        console.log('=========================================\n');
 
     } catch (error) {
         console.error('Критична грешка в Chromium:', error.message);
@@ -86,6 +99,7 @@ async function scrapeTokens() {
 async function scanSingleChannel(browser, channel, url) {
     let page;
     let foundStream = null;
+
     try {
         page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
@@ -95,7 +109,7 @@ async function scanSingleChannel(browser, channel, url) {
                 const reqUrl = request.url();
                 if (reqUrl.includes('.m3u8') && !foundStream) {
                     foundStream = reqUrl;
-                    console.log(`   ✅ Намерен линк за ${channel.name}`);
+                    console.log(`   ✅ [УСПЕХ] Намерен линк за ${channel.name}`);
                 }
             } catch (err) {}
         });
@@ -116,13 +130,23 @@ async function scanSingleChannel(browser, channel, url) {
         }).catch(() => {});
 
         await page.mouse.click(640, 360).catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        await page.evaluate(() => {
+            const videoContainer = document.getElementById('player') || document.querySelector('video');
+            if (videoContainer) {
+                const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                videoContainer.dispatchEvent(clickEvent);
+            }
+        }).catch(() => {});
+
+        await new Promise(resolve => setTimeout(resolve, 4000));
 
     } catch (err) {
         console.error(`   ❌ Проблем при ${channel.name}:`, err.message);
     } finally {
         if (page && !page.isClosed()) await page.close().catch(() => {});
     }
+
     return foundStream;
 }
 
@@ -133,8 +157,8 @@ app.get('/api/streams', (req, res) => {
     res.json(streamCache); 
 });
 
-// ДИНАМИЧЕН ПОРТ ЗА RENDER
+// ДИНАМИЧЕН ПОРТ ЗА RENDER (Това ще оправи червения Fail!)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => { 
-    console.log(`🛡️ Сървърът работи на порт ${PORT}`); 
+    console.log(`🛡️ Стрийминг сървърът работи на порт ${PORT}`); 
 });
