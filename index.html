@@ -105,7 +105,57 @@
         </aside>
 
     <script>
-       const API_BASE = 'http://localhost:3000';
+       const API_BASE = "https://твоето-име-на-проект.onrender.com"; 
+
+// Променената функция, която взима пресния линк от сървъра
+async function loadStream(channelId) {
+    const video = document.getElementById('video');
+    currentSelectedChannel = channelId;
+    
+    // Актуализираме бутоните визуално
+    document.querySelectorAll('[id^="ch-"]').forEach(btn => {
+        const chId = btn.id.replace('ch-', '');
+        updateButtonState(btn, chId);
+    });
+
+    try {
+        // Питаме сървъра за актуалния .m3u8 адрес
+        const res = await fetch(`${API_BASE}/api/stream/${channelId}`);
+        const data = await res.json();
+        
+        if (!data.url) {
+            alert("В момента стриймът не може да бъде извлечен автоматично.");
+            return;
+        }
+
+        const videoUrl = data.url;
+
+        // Зареждане във HLS плейъра
+        if (Hls.isSupported()) {
+            if (currentHls) currentHls.destroy();
+            currentHls = new Hls();
+            currentHls.loadSource(videoUrl);
+            currentHls.attachMedia(video);
+            
+            // Автоматично възстановяване при прекъсване на стрийма
+            currentHls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        currentHls.startLoad();
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        currentHls.recoverMediaError();
+                    }
+                }
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = videoUrl;
+        }
+
+    } catch (err) {
+        console.error("Грешка при връзка със стрийминг сървъра:", err);
+        alert("Връзката със сървъра за стриймове се забавя. Моля, опитайте пак след 10 секунди.");
+    }
+}
 let currentHls = null;
 let selectedChannel = null;
 
