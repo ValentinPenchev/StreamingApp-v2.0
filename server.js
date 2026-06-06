@@ -166,7 +166,8 @@ app.get('/api/streams', (req, res) => {
     res.json(streamCache); 
 });
 
-app.listen(3000, () => { 
-    console.log('🛡️ Стрийминг сървърът работи на http://localhost:3000'); 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => { 
+    console.log(`🛡️ Стрийминг сървърът работи успешно на порт ${PORT}`); 
 });
 
