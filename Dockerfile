@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Инсталираме пакетите чисто
-RUN npm ci
+RUN npm install --omit=dev
 
 # Копираме целия останал код на проекта ни
 COPY . .
