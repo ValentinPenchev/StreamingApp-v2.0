@@ -39,16 +39,12 @@ async function scrapeTokens() {
     try {
         browser = await puppeteer.launch({ 
             headless: true,
-            // СЛЕДВАЩИЯТ РЕД Е КЛЮЧОВ ЗА RENDER: Казва му да ползва инсталирания в Linux Chromium
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-features=site-per-process',
-                '--window-size=1280,720'
-            ]
+    args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox', 
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+    ]
         });
 
         browser.on('targetcreated', async (target) => {
