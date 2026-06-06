@@ -1,6 +1,5 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-const cors = require('cors');
 
 // ГЛОБАЛНА ЗАЩИТА СРЕЩУ СРИВОВЕ
 process.on('unhandledRejection', (reason) => {
@@ -11,25 +10,18 @@ process.on('uncaughtException', (error) => {
 });
 
 const app = express();
-app.use(cors());
 
-// КЕШ ЗА СТРИЙМОВЕТЕ
+// СЕРВИРАНЕ НА ФРОНТЕНДА ОТ ПАПКА PUBLIC
+app.use(express.static('public'));
 
 let streamCache = {
     diema1: '', diema2: '', diema3: '',
     max1: '', max2: '', euro1: '', euro2: '',
     btv_comedy: '', star_channel: '', star_life: '', lastUpdated: null
 };
-let programCache = {};
-// Конфигурация на каналите за стрийминг сканиране
 
 const channelsConfig = [
-    { 
-        id: 'diema1', 
-        name: 'Diema Sport', 
-        pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-hd&pass=',
-        fallbackUrl: 'https://www.seirsanduk.online/?id=hd-diema-sport-hd&pass=&hash=' 
-    },
+    { id: 'diema1', name: 'Diema Sport', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-hd&pass=', fallbackUrl: 'https://www.seirsanduk.online/?id=hd-diema-sport-hd&pass=&hash=' },
     { id: 'diema2', name: 'Diema Sport 2', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-2-hd&pass=', logo: 'https://nstatic.nova.bg/public/doc/doc/1625131615_ds_web.jpg' },
     { id: 'diema3', name: 'Diema Sport 3', pageUrl: 'https://www.seirsanduk.online/?player=12&id=hd-diema-sport-3-hd&pass=' },
     { id: 'max1', name: 'Max Sport 1', pageUrl: 'https://www.seirsanduk.online/?id=hd-max-sport-1-hd&pass=&hash=' },
@@ -38,32 +30,27 @@ const channelsConfig = [
     { id: 'euro2', name: 'Eurosport 2', pageUrl: 'https://www.seirsanduk.online/?id=hd-eurosport-2-hd&pass=&hash=' },
     { id: 'btv_comedy', name: 'BTV Comedy', pageUrl: 'https://www.seirsanduk.online/?id=hd-btv-comedy-hd&pass=&hash=' },
     { id: 'star_channel', name: 'Star Channel', pageUrl: 'https://www.seirsanduk.online/?id=hd-star-channel-hd&pass=&hash=' },
-    { id: 'star_life', name: 'Star Life', pageUrl: 'https://www.seirsanduk.online/?id=hd-star-life-hd&pass=&hash=', }
+    { id: 'star_life', name: 'Star Life', pageUrl: 'https://www.seirsanduk.online/?id=hd-star-life-hd&pass=&hash=' }
 ];
 
-/**
- * СКРАПЕР ЗА ВИДЕО ПОТОЦИ (m3u8)
- */
 async function scrapeTokens() {
-    console.log('\n=========================================');
-    console.log('🚀 СТАРТИРАНЕ НА СКАНИРАНЕ ЗА СТРИЙМОВЕ');
-    console.log('=========================================');
-    
+    console.log('\n🚀 СТАРТИРАНЕ НА СКАНИРАНЕ ЗА СТРИЙМОВЕ...');
     let browser;
     try {
         browser = await puppeteer.launch({ 
-            headless: true, // Задължително в облака
+            headless: true,
+            // СЛЕДВАЩИЯТ РЕД Е КЛЮЧОВ ЗА RENDER: Казва му да ползва инсталирания в Linux Chromium
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled', // Скрива, че е робот
+                '--disable-gpu',
                 '--disable-features=site-per-process',
                 '--window-size=1280,720'
             ]
         });
 
-        // Затваряне на изскачащи рекламни прозорци (Popups), които блокират плеъра
         browser.on('targetcreated', async (target) => {
             try {
                 if (target.type() === 'page') {
@@ -77,7 +64,7 @@ async function scrapeTokens() {
         });
 
         for (const channel of channelsConfig) {
-            console.log(`🔄 Сканиране на поток за: ${channel.name}...`);
+            console.log(`🔄 Сканиране: ${channel.name}...`);
             let foundStream = await scanSingleChannel(browser, channel, channel.pageUrl);
 
             if (!foundStream && channel.fallbackUrl) {
@@ -87,15 +74,11 @@ async function scrapeTokens() {
 
             if (foundStream) {
                 streamCache[channel.id] = foundStream;
-                console.log(`   ⭐ Записан в кеша: ${foundStream.substring(0, 50)}...`);
-            } else {
-                console.log(`   ❌ Провал: Не е намерен линк за ${channel.name}`);
             }
         }
 
         streamCache.lastUpdated = new Date();
-        console.log('🏁 СКАНИРАНЕТО НА СТРИЙМОВЕ ЗАВЪРШИ');
-        console.log('=========================================\n');
+        console.log('🏁 СКАНИРАНЕТО НА СТРИЙМОВЕ ЗАВЪРШИ\n');
 
     } catch (error) {
         console.error('Критична грешка в Chromium:', error.message);
@@ -103,79 +86,59 @@ async function scrapeTokens() {
         if (browser) await browser.close().catch(() => {});
     }
 }
+
 async function scanSingleChannel(browser, channel, url) {
     let page;
     let foundStream = null;
-
     try {
         page = await browser.newPage();
-        
-        // Слагаме истински User Agent, за да не ни блокира Cloudflare
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
-        // Слушаме за мрежови заявки
         page.on('request', request => {
             try {
                 const reqUrl = request.url();
-                // Търсим линкове, които съдържат .m3u8 и балансьори (обикновено съдържат /live/, /hls/ или джаваскрипт токени)
-                if (reqUrl.includes('.m3u8') && !foundStream && !reqUrl.includes('analytics')) {
+                if (reqUrl.includes('.m3u8') && !foundStream) {
                     foundStream = reqUrl;
-                    console.log(`   ✅ [УСПЕХ] Намерен линк за ${channel.name}`);
+                    console.log(`   ✅ Намерен линк за ${channel.name}`);
                 }
             } catch (err) {}
         });
 
-        // Отваряме страницата и чакаме да се зареди основния код
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Изтриваме досадните реклами, които застават ПРЕД плеъра и блокират кликането
         await page.evaluate(() => {
-            const playerEl = document.getElementById('player') || document.querySelector('video');
+            const playerEl = document.getElementById('player');
             if (!playerEl) return;
-            const allElements = document.querySelectorAll('div, iframe, section, ins');
+            const allElements = document.querySelectorAll('div, iframe, section');
             allElements.forEach(el => {
                 const style = window.getComputedStyle(el);
-                if ((style.position === 'absolute' || style.position === 'fixed') && !el.contains(playerEl)) {
+                if ((style.position === 'absolute' || style.position === 'fixed') && !el.contains(playerEl) && el.id !== 'player') {
                     el.remove();
                 }
             });
         }).catch(() => {});
 
-        // Опит за директно кликване върху видео елемента
-        const videoElement = await page.$('#player, video, iframe');
-        if (videoElement) {
-            await videoElement.click().catch(() => {});
-            console.log(`   [Инфо] Извършен директен клик върху плеъра.`);
-        }
-
-        // Изчакваме още 5 секунди, за да се задейства стрийма и да го прихванем
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await page.mouse.click(640, 360).catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
     } catch (err) {
         console.error(`   ❌ Проблем при ${channel.name}:`, err.message);
     } finally {
         if (page && !page.isClosed()) await page.close().catch(() => {});
     }
-
     return foundStream;
 }
 
-// Автоматично сканиране на всеки 20 минути
 setInterval(scrapeTokens, 20 * 60 * 1000);
-
-// Стартиране веднага при пускане на сървъра
 scrapeTokens();
 
-/**
- * API ЕНДПОИНТ ЗА ФРОНТЕНДА
- */
 app.get('/api/streams', (req, res) => { 
     res.json(streamCache); 
 });
 
+// ДИНАМИЧЕН ПОРТ ЗА RENDER
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => { 
-    console.log(`🛡️ Стрийминг сървърът работи успешно на порт ${PORT}`); 
+    console.log(`🛡️ Сървърът работи на порт ${PORT}`); 
 });
-
