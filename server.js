@@ -52,16 +52,18 @@ async function scrapeTokens() {
     let browser;
     try {
         browser = await puppeteer.launch({ 
-            headless: true,
+            headless: true, // Задължително в облака
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox', 
                 '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled', // Скрива, че е робот
                 '--disable-features=site-per-process',
                 '--window-size=1280,720'
             ]
         });
 
+        // Затваряне на изскачащи рекламни прозорци (Popups), които блокират плеъра
         browser.on('targetcreated', async (target) => {
             try {
                 if (target.type() === 'page') {
@@ -85,6 +87,9 @@ async function scrapeTokens() {
 
             if (foundStream) {
                 streamCache[channel.id] = foundStream;
+                console.log(`   ⭐ Записан в кеша: ${foundStream.substring(0, 50)}...`);
+            } else {
+                console.log(`   ❌ Провал: Не е намерен линк за ${channel.name}`);
             }
         }
 
@@ -98,7 +103,6 @@ async function scrapeTokens() {
         if (browser) await browser.close().catch(() => {});
     }
 }
-
 async function scanSingleChannel(browser, channel, url) {
     let page;
     let foundStream = null;
