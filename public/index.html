@@ -112,29 +112,62 @@
 // Променената функция, която взима пресния линк от сървъра
 async function loadStream(id) {
     const video = document.getElementById('video');
-    try {
-        // Викаме ендпоинта, за да вземем линковете
-        const res = await fetch(`${API_BASE}/api/streams`);
-        const links = await res.json();
-        const m3u8Url = links[id];
+    currentSelectedChannel = channelId;
+    
+    // Актуализираме бутоните визуално
+    document.querySelectorAll('[id^="ch-"]').forEach(btn => {
+        const chId = btn.id.replace('ch-', '');
+        updateButtonState(btn, chId);
+    });
 
-        if (!m3u8Url) {
-            console.warn(`Няма намерен активен линк за канал: ${id}`);
-            // Ако линкът липсва, показваме съобщение над плейъра
-            document.getElementById('currentChannelName').innerText = "Стриймът се обновява в момента... Опитайте след 10 сек.";
+    try {
+        // Викаме специфичния ендпоинт за дадения канал (напр. /api/stream/diema1)
+        const res = await fetch(`${API_BASE}/api/stream/${channelId}`);
+        
+        if (!res.ok) {
+            throw new Error("Сървърът върна грешка или каналът още не е скрапнат.");
+        }
+        
+        const data = await res.json();
+        const videoUrl = data.url;
+
+        if (!videoUrl) {
+            console.warn(`Няма намерен активен поток за: ${channelId}`);
+            alert("Потокът се обновява автоматично от сървъра. Моля, опитайте след 15 секунди.");
             return;
         }
 
+        console.log(`Зареждане на видео поток: ${videoUrl}`);
+
+        // Стартиране на HLS плейъра
         if (Hls.isSupported()) {
-            if (currentHls) currentHls.destroy();
-            currentHls = new Hls();
-            currentHls.loadSource(m3u8Url);
+            if (currentHls) {
+                currentHls.destroy();
+            }
+            currentHls = new Hls({
+                manifestLoadingMaxRetry: 3,
+                manifestLoadingRetryDelay: 2000
+            });
+            currentHls.loadSource(videoUrl);
             currentHls.attachMedia(video);
+            
+            // Автоматично рестартиране при прекъсване на излъчването
+            currentHls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        currentHls.startLoad();
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        currentHls.recoverMediaError();
+                    }
+                }
+            });
+            
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = m3u8Url;
+            video.src = videoUrl;
         }
+
     } catch (err) {
-        console.error("Грешка при зареждане на видео поток:", err);
+        console.error("Грешка при комуникация с Render сървъра:", err);
     }
 }
 let currentHls = null;
