@@ -106,44 +106,44 @@ async function scanSingleChannel(browser, channel, url) {
 
     try {
         page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
+        // ВКЛЮЧВАМЕ ИНТЕРЦЕПТОР НА ЗАЯВКИТЕ (СПАСЕНИЕТО ЗА 512MB RAM)
+        await page.setRequestInterception(true);
         page.on('request', request => {
-            try {
-                const reqUrl = request.url();
-                if (reqUrl.includes('.m3u8') && !foundStream) {
-                    foundStream = reqUrl;
-                    console.log(`   ✅ [УСПЕХ] Намерен линк за ${channel.name}`);
-                }
-            } catch (err) {}
+            const type = request.resourceType();
+            const reqUrl = request.url();
+
+            // 1. Ако засечем мача (.m3u8), го прихващаме веднага
+            if (reqUrl.includes('.m3u8') && !foundStream) {
+                foundStream = reqUrl;
+                console.log(`   ✅ [УСПЕХ] Намерен линк за ${channel.name}`);
+                request.abort(); // Спираме заявката, за да пестим ресурс, намерихме каквото ни трябва
+                return;
+            }
+
+            // 2. БЛОКИРАМЕ всичко тежко, което хаби памет и забива Render
+            if (['image', 'stylesheet', 'font', 'media'].includes(type) || 
+                reqUrl.includes('google') || 
+                reqUrl.includes('analytics') || 
+                reqUrl.includes('adservice') || 
+                reqUrl.includes('pop') ||
+                reqUrl.includes('banner')) {
+                request.abort();
+            } else {
+                request.continue();
+            }
         });
 
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        // Отваряме страницата с кратък таймаут
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        
+        // Малко изчакване за изпълнение на скриптовете, които генерират токена
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        await page.evaluate(() => {
-            const playerEl = document.getElementById('player');
-            if (!playerEl) return;
-            const allElements = document.querySelectorAll('div, iframe, section');
-            allElements.forEach(el => {
-                const style = window.getComputedStyle(el);
-                if ((style.position === 'absolute' || style.position === 'fixed') && !el.contains(playerEl) && el.id !== 'player') {
-                    el.remove();
-                }
-            });
-        }).catch(() => {});
-
+        // Симулираме клик в центъра на плеъра, за да събудим стрийма
         await page.mouse.click(640, 360).catch(() => {});
-        
-        await page.evaluate(() => {
-            const videoContainer = document.getElementById('player') || document.querySelector('video');
-            if (videoContainer) {
-                const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                videoContainer.dispatchEvent(clickEvent);
-            }
-        }).catch(() => {});
-
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
     } catch (err) {
         console.error(`   ❌ Проблем при ${channel.name}:`, err.message);
